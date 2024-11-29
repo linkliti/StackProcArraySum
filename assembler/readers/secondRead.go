@@ -2,26 +2,31 @@ package readers
 
 import (
 	"bufio"
+	"emulator/utils"
 	"log/slog"
 	"os"
-	"processor/assembler/utils"
+	"strconv"
 	"strings"
-
-	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
 
-func SecondRead(inputFile *os.File, outputFile *os.File, jmpMarkers *orderedmap.OrderedMap[string, uint]) {
+func SecondRead(inputFile *os.File, outputFile *os.File, jmpMarkers map[string]uint) {
 	slog.Debug("Starting second read")
 	instructionNum := new(uint)
-	if address, ok := jmpMarkers.Get("START"); ok {
-		utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
-		utils.WriteBinCount(outputFile, instructionNum, address)
-		utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet["JMP"])
+	if _, ok := jmpMarkers["START"]; ok {
+		// JMP START and marker shift
+		for k := range jmpMarkers {
+			jmpMarkers[k] += 3
+		}
+		slog.Debug("Shifted markers", "markers", utils.PrintMap(jmpMarkers))
+		slog.Debug("Writing PUSH START JMP", "startAddress", jmpMarkers["START"])
+		WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
+		WriteBinCount(outputFile, instructionNum, jmpMarkers["START"])
+		WriteBinCount(outputFile, instructionNum, utils.InstructionSet["JMP"])
 	}
 	reader := bufio.NewScanner(inputFile)
 	ok := reader.Scan()
 	for ok {
-		text := utils.CleanText(reader.Text())
+		text := CleanText(reader.Text())
 		if text == "" {
 			slog.Debug("Skipping empty line")
 			ok = reader.Scan()
@@ -31,37 +36,37 @@ func SecondRead(inputFile *os.File, outputFile *os.File, jmpMarkers *orderedmap.
 			if text == ".DATA" {
 				slog.Debug("Skipping .DATA")
 				ok = reader.Scan()
-				text = utils.CleanText(reader.Text())
+				text = CleanText(reader.Text())
 				for ok && !strings.HasPrefix(text, ".") {
 					ok = reader.Scan()
-					text = utils.CleanText(reader.Text())
+					text = CleanText(reader.Text())
 				}
 				continue
 			}
 			slog.Debug("Parsing section", "section", text)
-			ok = instructParser(reader, outputFile, instructionNum)
+			ok = instructParser(reader, outputFile, instructionNum, jmpMarkers)
 			continue
 		}
 		slog.Error("Invalid section", "text", text)
 		os.Exit(1)
 	}
 	if *instructionNum == 0 {
-		utils.WriteBin(outputFile, 0, 0)
+		WriteBin(outputFile, 0, 0)
 	}
 	outputFile.WriteString("\n")
 }
 
-func instructParser(reader *bufio.Scanner, outputFile *os.File, instructionNum *uint) bool {
-	sectionName := utils.CleanText(reader.Text())
+func instructParser(reader *bufio.Scanner, outputFile *os.File, instructionNum *uint, jmpMarkers map[string]uint) bool {
+	sectionName := CleanText(reader.Text())
 	sectionName = string([]rune(sectionName)[1:]) // Remove .
 	slog.Debug("Start parsing section", "section", sectionName, "instruction", *instructionNum)
 	ok := reader.Scan()
-	text := utils.CleanText(reader.Text())
+	text := CleanText(reader.Text())
 	for ok && !strings.HasPrefix(text, ".") {
 		if len(text) == 0 {
 			slog.Debug("Skipping empty line")
 			ok = reader.Scan()
-			text = utils.CleanText(reader.Text())
+			text = CleanText(reader.Text())
 			continue
 		}
 		parts := strings.Split(text, " ")
@@ -73,29 +78,23 @@ func instructParser(reader *bufio.Scanner, outputFile *os.File, instructionNum *
 		slog.Debug("Found instruction", "instruction", text)
 		switch instruction {
 		case "PUSH":
-			// if len(parts) != 2 {
-			// 	slog.Error("Invalid instruction format", "text", text)
-			// 	os.Exit(1)
-			// }
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet[parts[1]])
+			data, err := strconv.ParseUint(parts[1], 10, utils.DataSize)
+			if err != nil {
+				slog.Error("Invalid value for instruction", "text", text)
+				os.Exit(1)
+			}
+			WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
+			WriteBinCount(outputFile, instructionNum, data)
 		case "JMP", "JNZ":
-			// if len(parts) != 2 {
-			// 	slog.Error("Invalid instruction format", "text", text)
-			// 	os.Exit(1)
-			// }
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet[parts[1]])
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet[instruction])
+			data := jmpMarkers[parts[1]]
+			WriteBinCount(outputFile, instructionNum, utils.InstructionSet["PUSH"])
+			WriteBinCount(outputFile, instructionNum, data)
+			WriteBinCount(outputFile, instructionNum, utils.InstructionSet[instruction])
 		default:
-			// if len(parts) != 1 {
-			// 	slog.Error("Invalid instruction format", "text", text)
-			// 	os.Exit(1)
-			// }
-			utils.WriteBinCount(outputFile, instructionNum, utils.InstructionSet[instruction])
+			WriteBinCount(outputFile, instructionNum, utils.InstructionSet[instruction])
 		}
 		ok = reader.Scan()
-		text = utils.CleanText(reader.Text())
+		text = CleanText(reader.Text())
 	}
 	slog.Debug("Finished parsing section", "section", sectionName, "instruction", *instructionNum)
 	return ok
