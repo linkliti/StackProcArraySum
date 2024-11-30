@@ -8,14 +8,14 @@ import (
 
 type Stack struct {
 	Items []interface{}
-	size  int
-	SP    int
+	size  uint8
+	SP    uint8
 }
 
 func NewStack(size int) *Stack {
 	return &Stack{
 		Items: make([]interface{}, size),
-		size:  size,
+		size:  uint8(size),
 		SP:    0,
 	}
 }
@@ -53,7 +53,7 @@ func (s *Stack) IsEmpty() bool {
 
 func (s *Stack) String() string {
 	str := ""
-	for i := 0; i < s.SP; i++ {
+	for i := 0; i < int(s.SP); i++ {
 		if s.Items[i] != nil {
 			if i > 0 {
 				str += " "
